@@ -34,8 +34,9 @@ typedef enum showbboxflags_t
 	SHOWBBOX_LINK_BOTH		= SHOWBBOX_LINK_OUTGOING | SHOWBBOX_LINK_INCOMING,
 } showbboxflags_t;
 
-typedef union eval_s
+typedef __attribute__((aligned(1))) union eval_s
 {
+__attribute__((aligned(1)))
 	string_t	string;
 	float		_float;
 	float		vector[3];

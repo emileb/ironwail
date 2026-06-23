@@ -45,8 +45,17 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define DEFAULT_REFRESHRATE	60
 
 #define MAKE_GL_VERSION(major, minor)		(((major) << 16) | (minor))
+#ifdef __ANDROID__
+// ironwail's hard requirements (compute shaders, SSBOs, atomics, indirect draw)
+// are all core in GLES 3.1; GLES 3.2 provides the rest. The desktop-only
+// extensions it uses (bindless, multi-draw-indirect, clip_control, etc.) all
+// have GLES-friendly fallbacks that are gated by the gl_*_able flags below.
+#define MIN_GL_VERSION_MAJOR				3
+#define MIN_GL_VERSION_MINOR				2
+#else
 #define MIN_GL_VERSION_MAJOR				4
 #define MIN_GL_VERSION_MINOR				3
+#endif
 #define MIN_GL_VERSION						MAKE_GL_VERSION(MIN_GL_VERSION_MAJOR, MIN_GL_VERSION_MINOR)
 #define MIN_GL_VERSION_STR					QS_STRINGIFY(MIN_GL_VERSION_MAJOR)"."QS_STRINGIFY(MIN_GL_VERSION_MINOR)
 
@@ -251,6 +260,13 @@ static void VID_Gamma_Init (void)
 	Cvar_RegisterVariable (&vid_contrast);
 }
 
+#ifdef __ANDROID__
+// On Android the render resolution is fixed by the -width/-height the launcher
+// passes (the SDL window covers the whole surface), so use those directly.
+static int cmd_line_width;
+static int cmd_line_height;
+#endif
+
 /*
 ======================
 VID_GetCurrentWidth
@@ -258,9 +274,13 @@ VID_GetCurrentWidth
 */
 static int VID_GetCurrentWidth (void)
 {
+#ifdef __ANDROID__
+	return cmd_line_width;
+#else
 	int w = 0, h = 0;
 	SDL_GetWindowSize(draw_context, &w, &h);
 	return w;
+#endif
 }
 
 /*
@@ -270,9 +290,13 @@ VID_GetCurrentHeight
 */
 static int VID_GetCurrentHeight (void)
 {
+#ifdef __ANDROID__
+	return cmd_line_height;
+#else
 	int w = 0, h = 0;
 	SDL_GetWindowSize(draw_context, &w, &h);
 	return h;
+#endif
 }
 
 /*
@@ -465,7 +489,11 @@ static qboolean VID_SetMode (int width, int height, int refreshrate, qboolean fu
 
 		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, MIN_GL_VERSION_MAJOR);
 		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, MIN_GL_VERSION_MINOR);
+#ifdef __ANDROID__
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+#else
 		SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+#endif
 #ifndef NDEBUG
 		SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_DEBUG_FLAG);
 #endif
@@ -1014,7 +1042,16 @@ GL_CheckExtensions
 */
 static void GL_CheckExtensions (void)
 {
+#ifdef __ANDROID__
+	// A few entries in the "core" list aren't part of GLES 3.2 core
+	// (glMapBuffer, glMultiDrawElementsIndirect, the desktop timer-query
+	// functions). None of them are actually called on the GLES path
+	// (MultiDrawElementsIndirect is gated behind gl_bindless_able, which is
+	// false here), so load them non-fatally instead of aborting startup.
+	GL_InitFunctions (gl_core_functions, false);
+#else
 	GL_InitFunctions (gl_core_functions, true);
+#endif
 
 	if (COM_CheckParm ("-glmarkers"))
 		glmarkers = true;
@@ -1251,7 +1288,9 @@ static void GL_SetupState (void)
 	glPolygonMode (GL_FRONT_AND_BACK, GL_FILL);
 	GL_DepthRange (ZRANGE_FULL); //johnfitz -- moved here becuase gl_ztrick is gone.
 	glEnable (GL_BLEND);
+#ifndef __ANDROID__ // cube maps are always seamless in GLES (no such enum)
 	glEnable (GL_TEXTURE_CUBE_MAP_SEAMLESS);
+#endif
 	glEnable (GL_SAMPLE_SHADING);
 
 	GL_ResetState ();
@@ -1273,11 +1312,25 @@ static void GL_Init (void)
 	Con_SafePrintf ("GL_RENDERER: %s\n", gl_renderer);
 	Con_SafePrintf ("GL_VERSION:  %s\n", gl_version);
 
+#ifdef __ANDROID__
+	// GLES reports e.g. "OpenGL ES 3.2 v1.r..." - skip the "OpenGL ES " prefix.
+	{
+		const char *verstr = gl_version;
+		if (verstr && !strncmp (verstr, "OpenGL ES ", 10))
+			verstr += 10;
+		if (verstr == NULL || sscanf(verstr, "%d.%d", &gl_version_major, &gl_version_minor) < 2)
+		{
+			gl_version_major = 0;
+			gl_version_minor = 0;
+		}
+	}
+#else
 	if (gl_version == NULL || sscanf(gl_version, "%d.%d", &gl_version_major, &gl_version_minor) < 2)
 	{
 		gl_version_major = 0;
 		gl_version_minor = 0;
 	}
+#endif
 	gl_version_number = MAKE_GL_VERSION(gl_version_major, gl_version_minor);
 	if (gl_version_number < MIN_GL_VERSION)
 		Sys_Error("OpenGL " MIN_GL_VERSION_STR " required, found %d.%d\n", gl_version_major, gl_version_minor);
@@ -1678,6 +1731,9 @@ void	VID_Init (void)
 		if (p && p < com_argc-1)
 		{
 			width = Q_atoi(com_argv[p+1]);
+#ifdef __ANDROID__
+			cmd_line_width = width;
+#endif
 
 			if(!COM_CheckParm("-height"))
 				height = width * 3 / 4;
@@ -1687,6 +1743,9 @@ void	VID_Init (void)
 		if (p && p < com_argc-1)
 		{
 			height = Q_atoi(com_argv[p+1]);
+#ifdef __ANDROID__
+			cmd_line_height = height;
+#endif
 
 			if(!COM_CheckParm("-width"))
 				width = height * 4 / 3;

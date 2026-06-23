@@ -477,14 +477,22 @@ static void TexMgr_Imagedump_f (void)
 			for (i = 0; i < 6; i++)
 			{
 				q_snprintf(tganame, sizeof(tganame), "imagedump/%s%s.tga", tempname, suf[i]);
+#ifdef __ANDROID__ // glGetTexImage is not available in GLES
+				memset (buffer, 0, glt->width * glt->height * glt->depth * channels);
+#else
 				glGetTexImage(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, format, GL_UNSIGNED_BYTE, buffer);
+#endif
 				Image_WriteTGA (tganame, buffer, glt->width, glt->height*glt->depth, channels*8, true);
 			}
 		}
 		else
 		{
 			q_snprintf(tganame, sizeof(tganame), "imagedump/%s.tga", tempname);
+#ifdef __ANDROID__ // glGetTexImage is not available in GLES
+			memset (buffer, 0, glt->width * glt->height * glt->depth * channels);
+#else
 			glGetTexImage(glt->target, 0, format, GL_UNSIGNED_BYTE, buffer);
+#endif
 			Image_WriteTGA (tganame, buffer, glt->width, glt->height*glt->depth, channels*8, true);
 		}
 
@@ -1999,7 +2007,8 @@ void GLPalette_CreateResources (void)
 	glGenTextures (1, &gl_palette_lut);
 	GL_BindNative (GL_TEXTURE0, GL_TEXTURE_3D, gl_palette_lut);
 	GL_ObjectLabelFunc (GL_TEXTURE, gl_palette_lut, -1, "palette lut");
-	GL_TexImage3DFunc (GL_TEXTURE_3D, 0, GL_R8UI, 128, 128, 128, 0, GL_RED_INTEGER, GL_UNSIGNED_BYTE, NULL);
+	// r32ui rather than r8ui: GLES image load/store doesn't support r8ui images.
+	GL_TexImage3DFunc (GL_TEXTURE_3D, 0, GL_R32UI, 128, 128, 128, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, NULL);
 	glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_BASE_LEVEL, 0);
 	glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_MAX_LEVEL, 0);
 	glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -2054,7 +2063,7 @@ void GLPalette_UpdateLookupTable (void)
 	GLPalette_InvalidateRemapped ();
 
 	GL_UseProgramFunc (glprogs.palette_init[metric]);
-	GL_BindImageTextureFunc (0, gl_palette_lut, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_R8UI);
+	GL_BindImageTextureFunc (0, gl_palette_lut, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_R32UI);
 	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, gl_palette_buffer[0], 0, 256 * sizeof (GLuint));
 	GL_BufferSubDataFunc (GL_SHADER_STORAGE_BUFFER, 0, 256 * sizeof (GLuint), d_8to24table);
 

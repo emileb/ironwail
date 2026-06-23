@@ -1484,7 +1484,7 @@ static void COM_CheckRegistered (void)
 	int		h;
 	unsigned short	check[128];
 	int		i;
-
+#ifndef __ANDROID__
 	COM_OpenFile("gfx/pop.lmp", &h, NULL);
 
 	if (h == -1)
@@ -1512,7 +1512,7 @@ static void COM_CheckRegistered (void)
 			Sys_Error ("Corrupted data file.");
 		}
 	}
-
+#endif
 	for (i = 0; com_cmdline[i]; i++)
 	{
 		if (com_cmdline[i]!= ' ')
@@ -1673,6 +1673,7 @@ typedef struct
 
 char	com_gamenames[1024];	//eg: "hipnotic;quoth;warp" ... no id1
 char	com_gamedir[MAX_OSPATH];
+char	com_cddir[MAX_OSPATH] = {0};
 char	com_basedirs[MAX_BASEDIRS][MAX_OSPATH];
 int		com_numbasedirs;
 char	com_nightdivedir[MAX_OSPATH];
@@ -3252,6 +3253,19 @@ void COM_InitFilesystem (void) //johnfitz -- modified based on topaz's tutorial
 
 	if (host_parms->userdir != host_parms->basedir)
 		COM_AddBaseDir (host_parms->userdir);
+
+#ifdef __ANDROID__
+	// On Android the launcher passes the location of the actual game data
+	// (pak files etc) via -cddir. Register it as an extra basedir so all game
+	// directories (id1, mission packs, -game mods) are also searched there.
+	i = COM_CheckParm ("-cddir");
+	if (i && i < com_argc-1)
+	{
+		q_strlcpy (com_cddir, com_argv[i + 1], sizeof(com_cddir));
+		Con_Printf ("Using cddir = %s\n", com_cddir);
+		COM_AddBaseDir (com_cddir);
+	}
+#endif
 
 	if (startarg)
 		COM_PatchCmdLine (startarg);

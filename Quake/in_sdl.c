@@ -399,7 +399,9 @@ static qboolean IN_UseController (int device_index)
 
 	case SDL_CONTROLLER_TYPE_PS3:
 	case SDL_CONTROLLER_TYPE_PS4:
+#if SDL_VERSION_ATLEAST(2, 0, 14) // PS5 controller type added in SDL 2.0.14
 	case SDL_CONTROLLER_TYPE_PS5:
+#endif
 		joy_active_type = GAMEPAD_PLAYSTATION;
 		break;
 
@@ -440,7 +442,7 @@ static qboolean IN_UseController (int device_index)
 #endif // SDL_VERSION_ATLEAST(2, 0, 14)
 
 #if SDL_VERSION_ATLEAST (2, 0, 9)
-	joy_has_rumble = SDL_GameControllerHasRumble (joy_active_controller);
+	//joy_has_rumble = SDL_GameControllerHasRumble (joy_active_controller);
 #endif // SDL_VERSION_ATLEAST (2, 0, 9)
 	return true;
 }
@@ -876,12 +878,14 @@ static int IN_KeyForControllerButton(SDL_GameControllerButton button)
 		case SDL_CONTROLLER_BUTTON_DPAD_DOWN: return K_DPAD_DOWN;
 		case SDL_CONTROLLER_BUTTON_DPAD_LEFT: return K_DPAD_LEFT;
 		case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: return K_DPAD_RIGHT;
+#if SDL_VERSION_ATLEAST(2, 0, 14) // paddles/misc1/touchpad added in SDL 2.0.14
 		case SDL_CONTROLLER_BUTTON_MISC1: return K_MISC1;
 		case SDL_CONTROLLER_BUTTON_PADDLE1: return K_PADDLE1;
 		case SDL_CONTROLLER_BUTTON_PADDLE2: return K_PADDLE2;
 		case SDL_CONTROLLER_BUTTON_PADDLE3: return K_PADDLE3;
 		case SDL_CONTROLLER_BUTTON_PADDLE4: return K_PADDLE4;
 		case SDL_CONTROLLER_BUTTON_TOUCHPAD: return K_TOUCHPAD;
+#endif
 		default: return 0;
 	}
 }
@@ -1320,11 +1324,17 @@ void IN_MouseMove(usercmd_t *cmd)
 	}
 }
 
+#ifdef __ANDROID__
+void IN_Move_Android (usercmd_t *cmd);
+#endif
 void IN_Move(usercmd_t *cmd)
 {
 	IN_JoyMove(cmd);
 	IN_GyroMove(cmd);
 	IN_MouseMove(cmd);
+#ifdef __ANDROID__
+	IN_Move_Android (cmd);
+#endif
 }
 
 void IN_ClearStates (void)

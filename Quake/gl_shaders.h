@@ -165,8 +165,8 @@ static const char warpscale_fragment_shader[] =
 "	coord &= 15;\n"\
 "	coord.y ^= coord.x;\n"\
 "	uint v = uint(coord.y | (coord.x << 8));	// 0  0  0  0 | x3 x2 x1 x0 |  0  0  0  0 | y3 y2 y1 y0\n"\
-"	v = (v ^ (v << 2)) & 0x3333;				// 0  0 x3 x2 |  0  0 x1 x0 |  0  0 y3 y2 |  0  0 y1 y0\n"\
-"	v = (v ^ (v << 1)) & 0x5555;				// 0 x3  0 x2 |  0 x1  0 x0 |  0 y3  0 y2 |  0 y1  0 y0\n"\
+"	v = (v ^ (v << 2)) & 0x3333u;				// 0  0 x3 x2 |  0  0 x1 x0 |  0  0 y3 y2 |  0  0 y1 y0\n"\
+"	v = (v ^ (v << 1)) & 0x5555u;				// 0 x3  0 x2 |  0 x1  0 x0 |  0 y3  0 y2 |  0 y1  0 y0\n"\
 "	v |= v >> 7;								// 0 x3  0 x2 |  0 x1  0 x0 | x3 y3 x2 y2 | x1 y1 x0 y0\n"\
 "	v = bitfieldReverse(v) >> 24;				// 0  0  0  0 |  0  0  0  0 | y0 x0 y1 x1 | y2 x2 y3 x3\n"\
 "	return float(v) * (1.0/256.0);\n"\
@@ -223,8 +223,10 @@ SOFTWARE.*/\
 "}\n"\
 "\n"\
 "#define DITHER_NOISE(uv) tri(bayer01(ivec2(uv)))\n"\
-"#define SCREEN_SPACE_NOISE() DITHER_NOISE(floor(gl_FragCoord.xy)+0.5)\n"\
-"#define SUPPRESS_BANDING() bayer(ivec2(gl_FragCoord.xy))\n"\
+/* NB: real functions, not zero-arg function-like macros - the Adreno GLSL */\
+/* preprocessor mis-parses MACRO() (no args) as a syntax error. (fragment-only) */\
+"float SCREEN_SPACE_NOISE() { return DITHER_NOISE(floor(gl_FragCoord.xy)+0.5); }\n"\
+"float SUPPRESS_BANDING() { return bayer(ivec2(gl_FragCoord.xy)); }\n"\
 
 ////////////////////////////////////////////////////////////////
 
@@ -337,8 +339,10 @@ NOISE_FUNCTIONS
 
 ////////////////////////////////////////////////////////////////
 
+// NB: GLES image load/store does not support RG formats, so we use rgba32ui
+// (only .xy are used). Keep in sync with the texture format in gl_rlight.c.
 #define LIGHT_CLUSTER_IMAGE(mode) \
-"layout(rg32ui, binding=0) uniform " mode " uimage3D LightClusters;\n"\
+"layout(rgba32ui, binding=0) uniform " mode " uimage3D LightClusters;\n"\
 
 ////////////////////////////////////////////////////////////////
 
@@ -516,9 +520,9 @@ WORLD_VERTEX_BUFFER
 "	out_pos = Transform(in_pos, instance);\n"
 "	gl_Position = ViewProj * vec4(out_pos, 1.0);\n"
 "#if REVERSED_Z\n"
-"	const float ZBIAS = -1./1024;\n"
+"	const float ZBIAS = -1./1024.;\n"
 "#else\n"
-"	const float ZBIAS =  1./1024;\n"
+"	const float ZBIAS =  1./1024.;\n"
 "#endif\n"
 "	if ((call.flags & CF_USE_POLYGON_OFFSET) != 0u)\n"
 "		gl_Position.z += ZBIAS;\n"
@@ -691,7 +695,7 @@ OIT_OUTPUT (out_fragcolor)
 "				{\n"
 "					int j = findLSB(mask);\n"
 "					mask ^= 1u << j;\n"
-"					Light l = Lights[ofs + j];\n"
+"					Light l = Lights[ofs + uint(j)];\n"
 "					// mimics R_AddDynamicLights, up to a point\n"
 "					float rad = l.radius;\n"
 "					float dist = dot(l.origin, plane.xyz) - plane.w;\n"
@@ -840,6 +844,14 @@ WORLD_VERTEX_BUFFER
 "	int instance_id = GET_INSTANCE_ID(call);\n"
 "	Instance instance = instance_data[instance_id];\n"
 "	gl_Position = ViewProj * vec4(Transform(in_pos, instance), 1.0);\n"
+"}\n";
+
+// GLES requires a fragment shader to link a program (desktop GL allows
+// vertex-only programs for depth/stencil-only passes). This no-op writes no
+// color, which is correct for the sky stencil pass (color writes are masked).
+static const char empty_fragment_shader[] =
+"void main()\n"
+"{\n"
 "}\n";
 
 ////////////////////////////////////////////////////////////////
@@ -1081,12 +1093,12 @@ ALIAS_INSTANCE_BUFFER
 "\n"
 "	PoseVertex GetPoseVertex(uint pose)\n"
 "	{\n"
-"		mat3x4 blendmat = BonePoses[pose + in_indices.x] * in_weights.x;\n"
-"		blendmat += BonePoses[pose + in_indices.y] * in_weights.y;\n"
+"		mat3x4 blendmat = BonePoses[pose + uint(in_indices.x)] * in_weights.x;\n"
+"		blendmat += BonePoses[pose + uint(in_indices.y)] * in_weights.y;\n"
 "		if (in_weights.z + in_weights.w > 0.0)\n"
 "		{\n"
-"			blendmat += BonePoses[pose + in_indices.z] * in_weights.z;\n"
-"			blendmat += BonePoses[pose + in_indices.w] * in_weights.w;\n"
+"			blendmat += BonePoses[pose + uint(in_indices.z)] * in_weights.z;\n"
+"			blendmat += BonePoses[pose + uint(in_indices.w)] * in_weights.w;\n"
 "		}\n"
 "		mat4x3 anim = transpose(blendmat);\n"
 "		return PoseVertex((anim * vec4(in_pos, 1.0)).xyz, (anim * vec4(in_nor.xyz, 0.0)).xyz);\n"
@@ -1102,11 +1114,11 @@ ALIAS_INSTANCE_BUFFER
 "\n"
 "	PoseVertex GetPoseVertex (uint pose)\n"
 "	{\n"
-"		uvec2 data = PackedPosNor[pose + gl_VertexID];\n"
+"		uvec2 data = PackedPosNor[pose + uint(gl_VertexID)];\n"
 "#if POSEVERTTYPE == 2 // PV_MD3\n"
 "		PoseVertex ret;\n"
 "		ret.pos = vec3((ivec3(data.xxy >> uvec3(0, 16, 0)) & 65535) - 32768);\n"
-"		vec2 spherical = vec2((data.yy >> uvec2(16, 24)) & 255) * (2.0 * 3.14159265 / 255.0);\n"
+"		vec2 spherical = vec2((data.yy >> uvec2(16, 24)) & 255u) * (2.0 * 3.14159265 / 255.0);\n"
 "		float sinlat = sin(spherical.x);\n"
 "		float coslat = cos(spherical.x);\n"
 "		float sinlng = sin(spherical.y);\n"
@@ -1116,7 +1128,7 @@ ALIAS_INSTANCE_BUFFER
 "		ret.nor.z = coslat;\n"
 "		return ret;\n"
 "#else // PV_QUAKE1\n"
-"		return PoseVertex(vec3((data.xxx >> uvec3(0, 8, 16)) & 255), unpackSnorm4x8(data.y).xyz);\n"
+"		return PoseVertex(vec3((data.xxx >> uvec3(0, 8, 16)) & 255u), unpackSnorm4x8(data.y).xyz);\n"
 "#endif // POSEVERTTYPE\n"
 "	}\n"
 "\n"
@@ -1143,8 +1155,8 @@ ALIAS_INSTANCE_BUFFER
 "{\n"
 "	InstanceData inst = instances[gl_InstanceID];\n"
 "	out_texcoord = in_uv;\n"
-"	PoseVertex pose1 = GetPoseVertex(inst.Pose1);\n"
-"	PoseVertex pose2 = GetPoseVertex(inst.Pose2);\n"
+"	PoseVertex pose1 = GetPoseVertex(uint(inst.Pose1));\n"
+"	PoseVertex pose2 = GetPoseVertex(uint(inst.Pose2));\n"
 "	mat4x3 worldmatrix = transpose(mat3x4(inst.WorldMatrix[0], inst.WorldMatrix[1], inst.WorldMatrix[2]));\n"
 "	vec3 lerpedVert = (worldmatrix * vec4(mix(pose1.pos, pose2.pos, inst.Blend), 1.0)).xyz;\n"
 "	gl_Position = ViewProj * vec4(lerpedVert, 1.0);\n"
@@ -1463,7 +1475,7 @@ WORLD_DRAW_BUFFER
 "void main()\n"
 "{\n"
 "	uint thread_id = gl_GlobalInvocationID.x;\n"
-"	if (thread_id < cmds.length())\n"
+"	if (thread_id < uint(cmds.length()))\n"
 "		cmds[thread_id].count = 0u;\n"
 "}\n";
 
@@ -1504,7 +1516,7 @@ DRAW_ELEMENTS_INDIRECT_COMMAND
 "void main()\n"
 "{\n"
 "	uint thread_id = gl_GlobalInvocationID.x;\n"
-"	uint num_calls = remap_data.length();\n"
+"	uint num_calls = uint(remap_data.length());\n"
 "	if (thread_id >= num_calls)\n"
 "		return;\n"
 "	DrawRemap remap = remap_data[thread_id];\n"
@@ -1538,10 +1550,10 @@ DRAW_ELEMENTS_INDIRECT_COMMAND
 "};\n"
 "\n"
 "#define CMD_COUNT(base)			rawcmds[base]\n"
-"#define CMD_INSTANCE_COUNT(base)	rawcmds[base + 1]\n"
-"#define CMD_FIRST_INDEX(base)		rawcmds[base + 2]\n"
-"#define CMD_BASE_VERTEX(base)		rawcmds[base + 3]\n"
-"#define CMD_BASE_INSTANCE(base)	rawcmds[base + 4]\n"
+"#define CMD_INSTANCE_COUNT(base)	rawcmds[base + 1u]\n"
+"#define CMD_FIRST_INDEX(base)		rawcmds[base + 2u]\n"
+"#define CMD_BASE_VERTEX(base)		rawcmds[base + 3u]\n"
+"#define CMD_BASE_INSTANCE(base)	rawcmds[base + 4u]\n"
 "#define SIZEOF_CMD					5 /* uints */\n"
 "\n"
 "layout(std430, binding=2) restrict writeonly buffer IndexBuffer\n"
@@ -1586,12 +1598,12 @@ DRAW_ELEMENTS_INDIRECT_COMMAND
 "};\n"
 "\n"
 "#define SURF_PLANE(base)			uintBitsToFloat(rawsurfaces[base])\n"
-"#define SURF_FRAMECOUNT(base)		rawsurfaces[base + 1].x\n"
-"#define SURF_TEXNUM(base)			rawsurfaces[base + 1].y\n"
-"#define SURF_NUMEDGES(base)		rawsurfaces[base + 1].z\n"
-"#define SURF_FIRSTVERT(base)		rawsurfaces[base + 1].w\n"
-"#define SURF_MINS(base)			uintBitsToFloat(rawsurfaces[base + 2].xyz)\n"
-"#define SURF_MAXS(base)			uintBitsToFloat(rawsurfaces[base + 3].xyz)\n"
+"#define SURF_FRAMECOUNT(base)		rawsurfaces[base + 1u].x\n"
+"#define SURF_TEXNUM(base)			rawsurfaces[base + 1u].y\n"
+"#define SURF_NUMEDGES(base)		rawsurfaces[base + 1u].z\n"
+"#define SURF_FIRSTVERT(base)		rawsurfaces[base + 1u].w\n"
+"#define SURF_MINS(base)			uintBitsToFloat(rawsurfaces[base + 2u].xyz)\n"
+"#define SURF_MAXS(base)			uintBitsToFloat(rawsurfaces[base + 3u].xyz)\n"
 "#define SIZEOF_SURFACE				4 /* uvec4s */\n"
 "\n"
 "layout(std140, binding=1) uniform FrameCullUBO\n"
@@ -1605,7 +1617,7 @@ DRAW_ELEMENTS_INDIRECT_COMMAND
 "void main()\n"
 "{\n"
 "	uint thread_id = gl_GlobalInvocationID.x;\n"
-"	if (thread_id >= marksurfs.length())\n"
+"	if (thread_id >= uint(marksurfs.length()))\n"
 "		return;\n"
 "	MarkSurface mark = marksurfs[thread_id];\n"
 "\n"
@@ -1780,7 +1792,7 @@ LIGHT_CLUSTER_IMAGE("writeonly")
 "	ComputeClusterExtents();\n"
 "\n"
 "	uint clustermask[MAX_LIGHTS / 32];\n"
-"	for (i = 0u; i < clustermask.length(); i++)\n"
+"	for (i = 0u; i < uint(clustermask.length()); i++)\n"
 "		clustermask[i] = 0u;\n"
 "	for (i = 0u; i < numlights; i++)\n"
 "		if (LightTouchesCluster(local_lights[i]))\n"
@@ -1801,7 +1813,7 @@ static const char palette_init_compute_shader[] =
 "\n"
 PALETTE_BUFFER
 "\n"
-"layout(r8ui, binding=0) uniform writeonly uimage3D PaletteLUT;\n"
+"layout(r32ui, binding=0) uniform writeonly uimage3D PaletteLUT;\n" // r32ui: r8ui images unsupported in GLES
 "\n"
 "vec3 sRGBToLinearRGB(vec3 v)\n"
 "{\n"
@@ -1859,7 +1871,7 @@ PALETTE_BUFFER
 "void main()\n"
 "{\n"
 "	uint groupsize = gl_WorkGroupSize.x * gl_WorkGroupSize.y * gl_WorkGroupSize.z;\n"
-"	uint numpasses = (256 + (groupsize - 1u)) / groupsize;\n"
+"	uint numpasses = (256u + (groupsize - 1u)) / groupsize;\n"
 "	uint i, ofs;\n"
 "	for (i = 0u, ofs = 0u; i < numpasses; i++, ofs += groupsize)\n"
 "	{\n"
@@ -1872,7 +1884,7 @@ PALETTE_BUFFER
 "\n"
 "	uvec3 gid = gl_GlobalInvocationID + UnpackRGB8(uint(Offset));\n"
 "	vec3 target = NormalizeColor((gid << 1) + (gid >> 6));\n"
-"	uint bestidx = 0;\n"
+"	uint bestidx = 0u;\n"
 "	float bestdist = 1e+32;\n"
 "	for (i = 0u; i < 256u; i++)\n"
 "	{\n"

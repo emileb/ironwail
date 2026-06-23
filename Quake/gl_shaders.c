@@ -105,7 +105,7 @@ static GLuint GL_CreateShader (GLenum type, const char *source, const char *extr
 {
 	const char *strings[16];
 	const char *typestr = NULL;
-	char header[256];
+	char header[512];
 	int numstrings = 0;
 	GLint status;
 	GLuint shader;
@@ -126,6 +126,33 @@ static GLuint GL_CreateShader (GLenum type, const char *source, const char *extr
 			break;
 	}
 
+#ifdef __ANDROID__
+	// GLES 3.2 has all of ironwail's hard requirements (compute, SSBOs, atomics,
+	// indirect draw) but uses ES shading language. Explicit highp is mandatory:
+	// the compute culling/palette code does integer & atomic math where a mediump
+	// default would silently corrupt results.
+	// Explicit highp everywhere (the compute culling/palette code does integer &
+	// atomic math that mediump would corrupt) plus default precision for every
+	// sampler/image type used, which GLSL ES requires but desktop GL does not.
+	q_snprintf (header, sizeof (header),
+		"#version 320 es\n"
+		"precision highp float;\n"
+		"precision highp int;\n"
+		"precision highp sampler2D;\n"
+		"precision highp sampler2DMS;\n"
+		"precision highp samplerCube;\n"
+		"precision highp usampler3D;\n"
+		"precision highp uimage3D;\n"
+		// 'noperspective' is a desktop-only interpolation qualifier (reserved word
+		// in GLSL ES); strip it so it falls back to default perspective-correct.
+		"#define noperspective\n"
+		"\n"
+		"#define BINDLESS %d\n"
+		"#define REVERSED_Z %d\n",
+		gl_bindless_able,
+		gl_clipcontrol_able
+	);
+#else
 	q_snprintf (header, sizeof (header),
 		"#version 430\n"
 		"\n"
@@ -134,6 +161,7 @@ static GLuint GL_CreateShader (GLenum type, const char *source, const char *extr
 		gl_bindless_able,
 		gl_clipcontrol_able
 	);
+#endif
 	strings[numstrings++] = header;
 
 	if (extradefs && *extradefs)
@@ -151,6 +179,32 @@ static GLuint GL_CreateShader (GLenum type, const char *source, const char *extr
 		char infolog[1024];
 		memset(infolog, 0, sizeof(infolog));
 		GL_GetShaderInfoLogFunc (shader, sizeof(infolog), NULL, infolog);
+#ifdef __ANDROID__ // dump the exact assembled source with line numbers for debugging
+		{
+			int s, line = 1;
+			size_t total = 0, used = 0;
+			char *buf, *start, *nl;
+			for (s = 0; s < numstrings; s++)
+				total += strlen (strings[s]);
+			buf = (char *) malloc (total + 1);
+			for (s = 0; s < numstrings; s++)
+			{
+				size_t len = strlen (strings[s]);
+				memcpy (buf + used, strings[s], len);
+				used += len;
+			}
+			buf[used] = 0;
+			Sys_Printf ("==== %s %s shader source ====\n", name, typestr);
+			for (start = buf; start && *start; start = nl ? nl + 1 : NULL, line++)
+			{
+				nl = strchr (start, '\n');
+				if (nl) *nl = 0;
+				Sys_Printf ("%4d: %s\n", line, start);
+			}
+			Sys_Printf ("==== end source ====\n");
+			free (buf);
+		}
+#endif
 		GL_InitError ("Error compiling %s %s shader:\n\n%s", name, typestr, infolog);
 	}
 
@@ -359,7 +413,11 @@ void GL_CreateShaders (void)
 		glprogs.skyboxside[dither] = GL_CreateProgram (sky_boxside_vertex_shader, sky_boxside_fragment_shader, "skybox side|DITHER %d", dither);
 		glprogs.sprites[dither] = GL_CreateProgram (sprites_vertex_shader, sprites_fragment_shader, "sprites|DITHER %d", dither);
 	}
+#ifdef __ANDROID__ // GLES requires a fragment shader to link a program
+	glprogs.skystencil = GL_CreateProgram (skystencil_vertex_shader, empty_fragment_shader, "sky stencil");
+#else
 	glprogs.skystencil = GL_CreateProgram (skystencil_vertex_shader, NULL, "sky stencil");
+#endif
 
 	int poseverttype;
 	for (oit = 0; oit < 2; oit++)

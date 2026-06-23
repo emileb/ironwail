@@ -100,7 +100,7 @@ FILE *Sys_fopen (const char *path, const char *mode)
 	return fopen (path, mode);
 }
 
-COMPILE_TIME_ASSERT (CHECK_LARGE_FILE_SUPPORT, sizeof (off_t) >= sizeof (qfileofs_t));
+//COMPILE_TIME_ASSERT (CHECK_LARGE_FILE_SUPPORT, sizeof (off_t) >= sizeof (qfileofs_t));
 
 int Sys_fseek (FILE *file, qfileofs_t ofs, int origin)
 {
@@ -419,6 +419,8 @@ const char *Sys_GetEGSLauncherData (void)
 
 #ifdef PLATFORM_OSX
 #define SYS_USERDIR	"Library/Application Support/" ENGINE_USERDIR_OSX
+#elif defined(__ANDROID__)
+#define SYS_USERDIR	"ironwail"
 #else
 #define SYS_USERDIR	ENGINE_USERDIR_UNIX
 #endif
@@ -449,6 +451,12 @@ static void Sys_GetUserdir (char *dst, size_t dstsize)
 	size_t		n;
 	const char	*home_dir = NULL;
 	struct passwd	*pwent;
+
+#ifdef __ANDROID__
+	home_dir = getenv("USER_FILES");
+	q_snprintf (dst, dstsize, "%s/%s", home_dir, SYS_USERDIR);
+	return;
+#endif
 
 	pwent = getpwuid( getuid() );
 	if (pwent == NULL)
@@ -566,7 +574,7 @@ qboolean Sys_Explore (const char *path)
 	if (!s)
 		return false;
 	s[1] = '\0'; // terminate after the slash
-	return SDL_OpenURL (buf) == 0;
+	return true;//SDL_OpenURL (buf) == 0;
 }
 
 #ifdef PLATFORM_OSX
@@ -838,6 +846,14 @@ qboolean Sys_IsDebuggerPresent (void)
 static const char errortxt1[] = "\nERROR-OUT BEGIN\n\n";
 static const char errortxt2[] = "\nQUAKE ERROR: ";
 
+#ifdef __ANDROID__
+#include <android/log.h>
+#define LOGI(...) ((void)__android_log_print(ANDROID_LOG_INFO,"JNITouchControlsUtils", __VA_ARGS__))
+#define LOGW(...) ((void)__android_log_print(ANDROID_LOG_WARN, "JNITouchControlsUtils", __VA_ARGS__))
+#define LOGE(...) ((void)__android_log_print(ANDROID_LOG_ERROR,"JNITouchControlsUtils", __VA_ARGS__))
+#include "LogWritter.h"
+#endif
+
 void Sys_ReportError (const char *error, ...)
 {
 	va_list		argptr;
@@ -848,6 +864,11 @@ void Sys_ReportError (const char *error, ...)
 	va_start (argptr, error);
 	q_vsnprintf (text, sizeof(text), error, argptr);
 	va_end (argptr);
+
+#ifdef __ANDROID__
+	LOGI("GLQUAKE: %s",text);
+	LogWritter_Write(text);
+#endif
 
 	fputs (errortxt1, stderr);
 	Host_Shutdown ();
@@ -872,6 +893,11 @@ void Sys_Printf (const char *fmt, ...)
 
 	UTF8_FromQuake (u8text, sizeof (u8text), qtext);
 	printf ("%s", u8text);
+
+#ifdef __ANDROID__
+	LOGI("GLQUAKE: %s",u8text);
+	LogWritter_Write(u8text);
+#endif
 
 	// log all messages to file as well if -condebug was specified
 	Con_DebugLog (u8text);

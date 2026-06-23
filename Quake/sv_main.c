@@ -2043,7 +2043,11 @@ void SV_SpawnServer (const char *server)
 	pr_global_struct->mapname = PR_SetEngineString(sv.name);
 
 // serverflags are for cross level information (sigils)
+#ifdef __ANDROID__ // unaligned access workaround
+	memcpy(&pr_global_struct->serverflags, &svs.serverflags, sizeof(pr_global_struct->serverflags));
+#else
 	pr_global_struct->serverflags = svs.serverflags;
+#endif
 
 	ED_LoadFromFile (sv.worldmodel->entities);
 

@@ -256,13 +256,56 @@ typedef struct
 #include "platform.h"
 #if defined(SDL_FRAMEWORK) || defined(NO_SDL_CONFIG)
 #include <SDL2/SDL.h>
+#ifdef __ANDROID__
+// ironwail uses a real GLES 3.2 context (compute shaders, SSBOs, indirect draws).
+// Pull in the GLES 3.2 + extension headers for the GL types/enums; the actual
+// entry points are resolved dynamically via SDL_GL_GetProcAddress.
+#include <GLES3/gl32.h>
+#include <GLES2/gl2ext.h>
+// GLES only provides the float variants of these, and has no glPolygonMode at
+// all (wireframe r_showtris is therefore a no-op on mobile).
+#define glClearDepth	glClearDepthf
+#define glDepthRange	glDepthRangef
+#define glPolygonMode(face, mode)	((void)0)
+// Desktop GL enums not present in GLES headers. Some are only referenced from
+// dead code paths (clip control / buffer storage / wireframe showtris, all
+// disabled on GLES); others map onto GLES EXT equivalents with the same value.
+#ifndef GL_LOWER_LEFT
+#define GL_LOWER_LEFT			0x8CA1
+#endif
+#ifndef GL_POLYGON_OFFSET_LINE
+#define GL_POLYGON_OFFSET_LINE	0x2A02
+#endif
+#ifndef GL_TEXTURE_LOD_BIAS
+#define GL_TEXTURE_LOD_BIAS		0x8501
+#endif
+#ifndef GL_TEXTURE0_ARB
+#define GL_TEXTURE0_ARB			GL_TEXTURE0
+#endif
+#ifndef GL_COMPRESSED_RGBA_BPTC_UNORM
+#define GL_COMPRESSED_RGBA_BPTC_UNORM	0x8E8C	// == GL_COMPRESSED_RGBA_BPTC_UNORM_EXT
+#endif
+#ifndef GL_MAP_PERSISTENT_BIT
+#define GL_MAP_PERSISTENT_BIT	0x0040	// == GL_MAP_PERSISTENT_BIT_EXT
+#endif
+#ifndef GL_MAP_COHERENT_BIT
+#define GL_MAP_COHERENT_BIT		0x0080	// == GL_MAP_COHERENT_BIT_EXT
+#endif
+#ifndef GL_BGRA
+#define GL_BGRA					0x80E1	// == GL_BGRA_EXT
+#endif
+#else
 #include <SDL2/SDL_opengl.h>
+#endif
 #else
 #include "SDL.h"
 #include "SDL_opengl.h"
 #endif
 #ifndef APIENTRY
 #define	APIENTRY
+#endif
+#ifndef APIENTRYP
+#define	APIENTRYP	APIENTRY *
 #endif
 
 #include "progs.h"
